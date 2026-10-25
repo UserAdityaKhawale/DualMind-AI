@@ -1,53 +1,83 @@
-import React, { useEffect, useState } from 'react';
+import React, { useRef } from 'react';
+import { flushSync } from 'react-dom';
 
 function Brand({ className = '' }) {
-  return <img src="/duamind-logo.png" alt="" className={`brand-logo ${className}`} />;
+  return <span className={`brand-wordmark ${className}`}><img src="/dualmind-wordmark.png" alt="" className="brand-logo"/><span>dualmind<span className="brand-suffix">.ai</span></span></span>;
 }
 
-export default function SiteHeader({ guide = false, onHistory, historyOpen = false }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const home = guide ? '/' : '';
-  const featuresHref = guide ? '/#features' : '#features';
-  const modelsHref = guide ? '/#models' : '#models';
-  const howHref = guide ? '#guide-steps' : '/how-to-use';
-  const workspaceHref = guide ? '/#workspace' : '#workspace';
+export default function SiteHeader({ theme = 'dark', onToggleTheme }) {
+  const themeButtonRef = useRef(null);
+  const path = typeof window === 'undefined' ? '/' : window.location.pathname;
+  const navItems = [
+    { href: '/', label: 'Overview' },
+    { href: '/debate', label: 'Workspace' },
+    { href: '/history', label: 'History' },
+    { href: '/how-to-use', label: 'Security & guide' },
+  ];
+  function toggleTheme() {
+    const button = themeButtonRef.current;
+    if (!button || typeof document.startViewTransition !== 'function') {
+      onToggleTheme?.();
+      return;
+    }
 
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    const closeOnEscape = (event) => { if (event.key === 'Escape') setMenuOpen(false); };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [menuOpen]);
+    const { left, top, width, height } = button.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const x = left + width / 2;
+    const y = top + height / 2;
+    const maxRadius = Math.hypot(Math.max(x, viewportWidth - x), Math.max(y, viewportHeight - y));
+    const radiusPercent = maxRadius / (Math.hypot(viewportWidth, viewportHeight) / Math.SQRT2) * 100;
+    const clipPath = [
+      `circle(0% at ${x / viewportWidth * 100}% ${y / viewportHeight * 100}%)`,
+      `circle(${radiusPercent}% at ${x / viewportWidth * 100}% ${y / viewportHeight * 100}%)`,
+    ];
+    const root = document.documentElement;
+    root.dataset.dualmindThemeTransition = 'active';
+    root.style.setProperty('--dualmind-theme-transition-duration', '480ms');
+    const transition = document.startViewTransition(() => {
+      flushSync(() => onToggleTheme?.());
+    });
+    transition.finished.then(
+      () => {
+        delete root.dataset.dualmindThemeTransition;
+        root.style.removeProperty('--dualmind-theme-transition-duration');
+      },
+      () => {
+        delete root.dataset.dualmindThemeTransition;
+        root.style.removeProperty('--dualmind-theme-transition-duration');
+      },
+    );
+    transition.ready.then(() => {
+      root.animate({ clipPath }, {
+        duration: 480,
+        easing: 'ease-in-out',
+        fill: 'forwards',
+        pseudoElement: '::view-transition-new(root)',
+      });
+    }).catch((error) => {
+      if (error.name !== 'InvalidStateError' && error.name !== 'AbortError') {
+        console.error('Could not animate the theme transition.', error);
+      }
+    });
+  }
 
-  const closeMenu = () => setMenuOpen(false);
-  const historyLink = guide ? '/?history=1#history' : '#history';
-  return <header className="site-header sticky top-0 z-30 border-b border-white/[.07] bg-[#070a12]/85 backdrop-blur-xl">
-    <nav className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-3.5 lg:px-8" aria-label="Main navigation">
-      <a href={home || '#top'} aria-label="DualMind AI home" onClick={closeMenu}><Brand /></a>
-      <div className="hidden items-center gap-8 lg:flex">
-        <a className="nav-link" href={featuresHref}>Features</a>
-        <a className="nav-link" href={howHref}>How it works</a>
-        <a className="nav-link" href={modelsHref}>Models</a>
-        <span className="rounded-full border border-emerald-500/25 bg-emerald-400/[.06] px-3 py-1 text-xs font-medium text-emerald-300">No signup</span>
+  return <header className="site-header">
+    <nav className="nav-inner" aria-label="Main navigation">
+      <a href="/" aria-label="DualMind AI home"><Brand /></a>
+      <div className="nav-links">
+        {navItems.map((item) => <a key={item.href} href={item.href} aria-current={path === item.href ? 'page' : undefined} className={path === item.href ? 'nav-link is-active' : 'nav-link'}>{item.label}</a>)}
       </div>
-      <div className="hidden items-center gap-2.5 sm:flex">
-        {onHistory ? <button type="button" onClick={onHistory} aria-expanded={historyOpen} aria-controls="history" className="button-secondary">History</button> : <a href={historyLink} className="button-secondary">History</a>}
-        <a href={workspaceHref} className="button-primary">Start testing <span aria-hidden="true">↗</span></a>
+      <div className="nav-actions">
+        <span className="nav-secure"><span aria-hidden="true">⌑</span> BYOK · Local-first</span>
+        <button ref={themeButtonRef} type="button" className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} aria-pressed={theme === 'dark'}>
+          {theme === 'dark'
+            ? <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20.2 15.5A8.5 8.5 0 0 1 8.5 3.8 8.6 8.6 0 1 0 20.2 15.5Z"/></svg>
+            : <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>}
+        </button>
+        <a className="nav-cta" href="/debate">Open workspace <span aria-hidden="true">↗</span></a>
       </div>
-      <button type="button" className="menu-toggle lg:hidden" aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={menuOpen} aria-controls="mobile-navigation" onClick={() => setMenuOpen((open) => !open)}>
-        <span className={menuOpen ? 'menu-line menu-line-top is-open' : 'menu-line menu-line-top'} />
-        <span className={menuOpen ? 'menu-line menu-line-bottom is-open' : 'menu-line menu-line-bottom'} />
-      </button>
     </nav>
-    {menuOpen && <div id="mobile-navigation" className="mobile-navigation border-t border-white/[.07] bg-[#0a101b] px-5 py-4 lg:hidden">
-      <div className="mx-auto grid max-w-7xl gap-1">
-        <a className="mobile-nav-link" href={featuresHref} onClick={closeMenu}>Features</a>
-        <a className="mobile-nav-link" href={howHref} onClick={closeMenu}>How it works</a>
-        <a className="mobile-nav-link" href={modelsHref} onClick={closeMenu}>Models</a>
-        {onHistory ? <button type="button" className="mobile-nav-link text-left" onClick={() => { closeMenu(); onHistory(); }}>History</button> : <a className="mobile-nav-link" href={historyLink} onClick={closeMenu}>History</a>}
-        <a href={workspaceHref} className="button-primary mt-2 justify-center" onClick={closeMenu}>Start testing <span aria-hidden="true">↗</span></a>
-      </div>
-    </div>}
   </header>;
 }
 

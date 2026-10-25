@@ -3,6 +3,7 @@ import { clearDebates, listDebates, removeDebate, saveDebate, toHistoryRecord } 
 import { buildReviewPairs, orderSynthesizerCandidates } from './debate.js';
 import SiteHeader, { Brand } from './SiteHeader.jsx';
 import HowToUse from './HowToUse.jsx';
+import ShineBorder from './ShineBorder.jsx';
 
 const FALLBACK_MODELS = [
   { id: 'gpt-5.5', provider: 'openai', name: 'GPT-5.5', capabilities: ['text', 'review', 'synthesis', 'streaming'] },
@@ -87,46 +88,55 @@ const localStatus = (error) => error?.status === 'timeout' ? 'timeout' : 'error'
 const keyForModel = (model, keys) => keys[model.provider]?.trim() ?? '';
 const resultKey = (reviewerModel, targetModel) => `${reviewerModel}::${targetModel}`;
 
-function StatusPill({ status }) {
-  const theme = {
-    queued: 'border-slate-700 bg-slate-900 text-slate-400', pending: 'border-blue-700/60 bg-blue-950/40 text-blue-200',
-    success: 'border-emerald-700/60 bg-emerald-950/40 text-emerald-200', error: 'border-rose-700/60 bg-rose-950/40 text-rose-200',
-    timeout: 'border-amber-700/60 bg-amber-950/40 text-amber-200', skipped: 'border-slate-700 bg-slate-900 text-slate-400',
-  }[status] ?? 'border-slate-700 bg-slate-900 text-slate-400';
-  const label = { pending: 'Running', success: 'Complete', error: 'Failed', timeout: 'Timed out', queued: 'Queued', skipped: 'Skipped' }[status] ?? 'Waiting';
-  return <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs ${theme}`} role="status">{status === 'pending' && <span className="size-1.5 animate-pulse rounded-full bg-current"/>}{label}</span>;
+function StatusPill({ status, kind = 'response', error }) {
+  const limited = /rate.?limit|429|too many requests/i.test(`${error?.code ?? ''} ${error?.message ?? ''}`);
+  const resolved = limited ? 'rate-limited' : status === 'pending' && kind === 'review' ? 'pending-review' : status === 'pending' && kind === 'synthesis' ? 'synthesizing' : status === 'pending' ? 'streaming' : status;
+  const label = { queued: 'Queued', 'pending-review': 'Pending Review', streaming: 'Streaming', synthesizing: 'Synthesizing', success: kind === 'synthesis' ? 'Synthesis Complete' : 'Complete', error: 'Failed', timeout: 'Timed out', 'rate-limited': 'Rate Limited', skipped: 'Skipped' }[resolved] ?? 'Waiting';
+  return <span className={`status-pill status-${resolved}`} role="status">{label}</span>;
+}
+
+function UsageMetrics({ usage, durationMs }) {
+  if (!usage && durationMs == null) return null;
+  return <div className="response-meta">
+    {durationMs != null && <span className="metric-chip">{(durationMs / 1000).toFixed(1)}s</span>}
+    {usage?.inputTokens != null && <span className="metric-chip">{usage.inputTokens.toLocaleString()} input tokens</span>}
+    {usage?.outputTokens != null && <span className="metric-chip">{usage.outputTokens.toLocaleString()} output tokens</span>}
+    {usage?.inputTokens == null && usage?.outputTokens == null && usage && <span className="metric-chip">Token usage unavailable</span>}
+  </div>;
 }
 
 function ProviderKeyCard({ provider, value, onChange, visible, onToggleVisible, testStatus, onTest, onClear }) {
   const testState = testStatus?.status;
-  return <article className={`rounded-2xl border border-slate-800 bg-gradient-to-br ${provider.color} p-5`}>
-    <div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold text-white">{provider.name}</h3><p className="mt-1 text-xs text-slate-400">{value.trim() ? 'Key is in this tab’s memory' : 'Not configured in this tab'}</p></div><span className={`size-2.5 rounded-full ${value.trim() ? 'bg-emerald-400' : 'bg-slate-600'}`} aria-label={value.trim() ? 'Configured' : 'Not configured'}/></div>
-    <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`key-${provider.id}`}>{provider.label}</label>
-    <div className="mt-2 flex gap-2"><input id={`key-${provider.id}`} type={visible ? 'text' : 'password'} autoComplete="off" spellCheck="false" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Paste key for this session" className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"/><button type="button" onClick={onToggleVisible} className="rounded-xl border border-slate-700 px-3 text-xs text-slate-300 hover:border-cyan-400">{visible ? 'Hide' : 'Show'}</button></div>
-    <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={onTest} disabled={!value.trim() || testState === 'pending'} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40">{testState === 'pending' ? 'Testing…' : 'Test connection'}</button>{value && <button type="button" onClick={onClear} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-rose-500">Remove key</button>}{testState === 'connected' && <span className="text-xs text-emerald-300">Connection verified</span>}{testState === 'failed' && <span className="text-xs text-rose-300">{testStatus.message}</span>}</div>
-  </article>;
+  return <ShineBorder as="article" className="provider-card">
+    <div className="provider-title"><div><h3>{provider.name}</h3><p>{value.trim() ? 'Key present in this tab' : 'Not configured'}</p></div><span className={`status-pill ${value.trim() ? 'status-success' : ''}`} aria-label={value.trim() ? 'Configured' : 'Not configured'}>{value.trim() ? 'Ready' : 'No key'}</span></div>
+    <div className="provider-input floating-field"><div className="floating-input-wrap"><input id={`key-${provider.id}`} type={visible ? 'text' : 'password'} autoComplete="off" spellCheck="false" value={value} onChange={(event) => onChange(event.target.value)} placeholder=" " className="field" aria-label={provider.label}/><label htmlFor={`key-${provider.id}`}>API key</label></div><button type="button" onClick={onToggleVisible} className="small-action">{visible ? 'Hide' : 'Show'}</button></div>
+    <div className="provider-actions"><button type="button" onClick={onTest} disabled={!value.trim() || testState === 'pending'} className="small-action">{testState === 'pending' ? 'Testing…' : 'Test'}</button>{value && <button type="button" onClick={onClear} className="small-action">Remove key</button>}{testState === 'connected' && <span className="provider-status-good">Connected</span>}{testState === 'failed' && <span className="provider-status-error">{testStatus.message}</span>}</div>
+  </ShineBorder>;
 }
 
 function ModelPanel({ model, result, onRetry }) {
-  return <article className="flex min-h-64 flex-col rounded-2xl border border-slate-800 bg-[#0d1524] p-5 sm:p-6">
-    <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-wider text-slate-500">{model.provider}</p><h3 className="mt-1 text-lg font-semibold text-slate-100">{model.name}</h3><p className="mt-1 text-xs text-slate-500">{model.id}</p></div><StatusPill status={result?.status ?? 'queued'}/></div>
-    {result?.status === 'pending' && !result.text && <div className="mt-7 space-y-3" aria-label={`${model.name} is responding`}><div className="h-3 animate-pulse rounded bg-slate-800"/><div className="h-3 w-5/6 animate-pulse rounded bg-slate-800"/><div className="h-3 w-2/3 animate-pulse rounded bg-slate-800"/></div>}
-    {result?.status === 'pending' && result.text && <div className="mt-5 whitespace-pre-wrap break-words text-sm leading-7 text-slate-200" aria-label={`${model.name} response streaming`}>{result.text}<span className="ml-1 inline-block h-4 w-1 animate-pulse bg-cyan-300 align-middle"/></div>}
-    {result?.status === 'success' && <div className="mt-5 whitespace-pre-wrap break-words text-sm leading-7 text-slate-200">{result.text}</div>}
-    {['error', 'timeout'].includes(result?.status) && <div className="mt-5 space-y-3 rounded-xl border border-rose-900/70 bg-rose-950/25 p-4 text-sm leading-6 text-rose-100">{result.text && <p className="whitespace-pre-wrap break-words text-slate-200">{result.text}</p>}<p>{result.error?.message ?? 'This model could not complete the request.'}</p></div>}
-    {result?.status === 'success' && <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 pt-6 text-xs text-slate-500"><span>{(result.durationMs / 1000).toFixed(1)}s</span>{result.usage?.inputTokens != null && <span>{result.usage.inputTokens.toLocaleString()} input tokens</span>}{result.usage?.outputTokens != null && <span>{result.usage.outputTokens.toLocaleString()} output tokens</span>}</div>}
-    {['error', 'timeout'].includes(result?.status) && onRetry && <button type="button" onClick={onRetry} className="mt-auto self-start pt-5 text-xs font-medium text-cyan-300 hover:text-cyan-200">Retry this model</button>}
-  </article>;
+  const status = result?.status ?? 'queued';
+  return <ShineBorder as="article" className="response-card">
+    <div className="response-header"><div><p>{model.provider}</p><h3>{model.name}</h3><p style={{ marginTop: '.2rem', textTransform: 'none', letterSpacing: 0 }}>{model.id}</p></div><StatusPill status={status} error={result?.error}/></div>
+    {status === 'pending' && !result.text && <p className="response-text" aria-label={`${model.name} is responding`}>Waiting for the first streamed token…</p>}
+    {status === 'pending' && result.text && <div className="response-text" aria-label={`${model.name} response streaming`}>{result.text}<span className="stream-caret" aria-hidden="true"/></div>}
+    {status === 'queued' && <p className="response-text">Independent response will appear here when you run a prompt.</p>}
+    {status === 'success' && <div className="response-text">{result.text}</div>}
+    {['error', 'timeout'].includes(status) && <div className="response-text">{result.text && <p>{result.text}</p>}<p className="error-note">{result.error?.message ?? 'This model could not complete the request.'}</p></div>}
+    <UsageMetrics usage={result?.usage} durationMs={result?.durationMs}/>
+    {['error', 'timeout'].includes(status) && onRetry && <button type="button" onClick={onRetry} className="small-action retry-action">Retry this model</button>}
+  </ShineBorder>;
 }
 
 function ReviewCard({ review, modelsById }) {
   const reviewer = modelsById[review.reviewerModel]?.name ?? review.reviewerModel;
   const target = modelsById[review.targetModel]?.name ?? review.targetModel;
-  return <article className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-medium text-slate-100">{reviewer} reviews {target}</p><StatusPill status={review.status}/></div>
-    {review.review && <><p className="mt-3 text-sm leading-6 text-slate-300">{review.review.assessment}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{[['Strengths', review.review.strengths], ['Potential concerns', review.review.potentialConcerns], ['Missing information', review.review.missingInformation], ['Corrections', review.review.corrections]].map(([label, values]) => values?.length ? <div key={label}><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</h4><ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-slate-300">{values.map((text, index) => <li key={`${label}-${index}`}>{text}</li>)}</ul></div> : null)}</div><p className="mt-3 text-xs text-slate-500">Confidence: {review.review.confidence}. {review.review.uncertainty}</p></>}
-    {review.error && <p className="mt-3 text-sm text-rose-200">{review.error.message}</p>}
-  </article>;
+  return <ShineBorder as="article" className="review-card">
+    <div className="response-header"><h4>{reviewer} reviews {target}</h4><StatusPill status={review.status} kind="review" error={review.error}/></div>
+    {review.review && <><p className="response-text" style={{ marginTop: '.6rem' }}>{review.review.assessment}</p><div className="review-detail-grid">{[['Strengths', review.review.strengths], ['Potential concerns', review.review.potentialConcerns], ['Missing information', review.review.missingInformation], ['Corrections', review.review.corrections]].map(([label, values]) => values?.length ? <div key={label}><h5>{label}</h5><ul>{values.map((text, index) => <li key={`${label}-${index}`}>{text}</li>)}</ul></div> : null)}</div><p className="compat-note">Confidence: {review.review.confidence}. {review.review.uncertainty}</p></>}
+    {review.error && <p className="error-note">{review.error.message}</p>}
+    <UsageMetrics usage={review.usage}/>
+  </ShineBorder>;
 }
 
 function toMarkdown(run, modelsById) {
@@ -149,8 +159,15 @@ function ProductPreview() {
 }
 
 export default function AppV2() {
-  const currentPath = typeof window === 'undefined' ? '/' : window.location.pathname;
+  const [currentPath, setCurrentPath] = useState(() => typeof window === 'undefined' ? '/' : window.location.pathname);
   const isGuide = currentPath.replace(/\/$/, '') === '/how-to-use';
+  const isHistory = currentPath.replace(/\/$/, '') === '/history';
+  const isWorkspace = currentPath.replace(/\/$/, '') === '/debate';
+  const isHome = !isGuide && !isHistory && !isWorkspace;
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'dark';
+    return window.localStorage.getItem('dualmind-theme') || (window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  });
   const [models, setModels] = useState(FALLBACK_MODELS);
   const [maxModels, setMaxModels] = useState(DEFAULT_MAX_MODELS);
   const [maxParallelRequests, setMaxParallelRequests] = useState(INITIAL_CONCURRENCY);
@@ -167,6 +184,7 @@ export default function AppV2() {
   const busy = useRef(false);
   const [stage, setStage] = useState('');
   const [history, setHistory] = useState([]);
+  const [historySearch, setHistorySearch] = useState('');
   const [historyOpen, setHistoryOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('history') === '1');
   const [historyError, setHistoryError] = useState('');
   const [modelsError, setModelsError] = useState('');
@@ -183,16 +201,61 @@ export default function AppV2() {
   useEffect(() => {
     if (isGuide) return;
     fetch('/api/models').then((response) => response.json()).then((payload) => { if (payload.models?.length) setModels(payload.models); if (Number.isInteger(payload.maxSelectedModels)) setMaxModels(payload.maxSelectedModels); if (Number.isInteger(payload.maxParallelRequests)) { setMaxParallelRequests(payload.maxParallelRequests); setConcurrency(Math.min(INITIAL_CONCURRENCY, payload.maxParallelRequests)); } }).catch(() => setModelsError('Using the built-in model list; the API model registry could not be loaded.'));
-    listDebates().then(setHistory).catch((error) => setHistoryError(error.message));
+    listDebates().then((items) => {
+      setHistory(items);
+      const requestedRun = new URLSearchParams(window.location.search).get('run');
+      const savedRun = requestedRun && items.find((item) => item.id === requestedRun);
+      if (savedRun) {
+        updateRun({ ...savedRun, status: savedRun.status ?? 'complete' });
+        setPrompt(savedRun.prompt);
+        setSelected(savedRun.selectedModels ?? []);
+      }
+    }).catch((error) => setHistoryError(error.message));
     if (new URLSearchParams(window.location.search).get('history') === '1') window.setTimeout(() => document.getElementById('history')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   }, [isGuide]);
 
   useEffect(() => {
+    window.localStorage.setItem('dualmind-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const updateRoute = () => {
+      setCurrentPath(window.location.pathname);
+      const requestedRun = new URLSearchParams(window.location.search).get('run');
+      const savedRun = requestedRun && history.find((item) => item.id === requestedRun);
+      if (savedRun) {
+        setPrompt(savedRun.prompt);
+        setSelected(savedRun.selectedModels ?? []);
+        updateRun({ ...savedRun, status: savedRun.status ?? 'complete' });
+      }
+    };
+    const handleNavigation = (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
+      if (!anchor || anchor.target || anchor.hasAttribute('download')) return;
+      const destination = new URL(anchor.href, window.location.href);
+      const appPaths = ['/', '/debate', '/history', '/how-to-use'];
+      if (destination.origin !== window.location.origin || !appPaths.includes(destination.pathname)) return;
+      if (destination.pathname === window.location.pathname && destination.search === window.location.search) return;
+      event.preventDefault();
+      window.history.pushState({}, '', destination);
+      window.scrollTo(0, 0);
+      updateRoute();
+    };
+    window.addEventListener('click', handleNavigation);
+    window.addEventListener('popstate', updateRoute);
+    return () => {
+      window.removeEventListener('click', handleNavigation);
+      window.removeEventListener('popstate', updateRoute);
+    };
+  }, [history]);
+
+  useEffect(() => {
     if (isGuide) return;
-    document.title = 'DualMind AI — Multi-Model Debate';
+    document.title = isHistory ? 'Debate History — DualMind AI' : isWorkspace ? 'Debate Workspace — DualMind AI' : 'DualMind AI — Collective AI Intelligence';
     const description = document.querySelector('meta[name="description"]');
     if (description) description.setAttribute('content', 'Compare independent answers from leading AI models, review their differences, and synthesize a useful response with DualMind AI.');
-  }, [isGuide]);
+  }, [isGuide, isHistory, isWorkspace]);
 
   function updateRun(next) { runRef.current = next; setRun(next); }
   async function refreshHistory() {
@@ -392,7 +455,9 @@ export default function AppV2() {
     setPrompt(item.prompt);
     setSelected(item.selectedModels ?? []);
     updateRun({ ...item, status: item.status ?? 'complete' });
-    setHistoryOpen(false);
+    window.history.pushState({}, '', `/debate?run=${encodeURIComponent(item.id)}`);
+    setCurrentPath('/debate');
+    window.scrollTo(0, 0);
     setNotice('Loaded a browser-local debate. API keys are not stored in history; add them again to retry operations.');
   }
 
@@ -418,8 +483,127 @@ export default function AppV2() {
     URL.revokeObjectURL(url);
   }
 
+  function exportHistoryItem(item) {
+    const blob = new Blob([toMarkdown(item, modelsById)], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `dualmind-${new Date(item.createdAt).toISOString().slice(0, 10)}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportAllHistory() {
+    const markdown = history.map((item) => toMarkdown(item, modelsById)).join('\n\n---\n\n');
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `dualmind-history-${new Date().toISOString().slice(0, 10)}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   const usage = run?.usage;
-  if (isGuide) return <HowToUse />;
+  const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
+  const filteredHistory = history.filter((item) => `${item.prompt} ${(item.selectedModels ?? []).map((id) => modelsById[id]?.name ?? id).join(' ')}`.toLowerCase().includes(historySearch.trim().toLowerCase()));
+  if (isGuide) return <HowToUse theme={theme} onToggleTheme={toggleTheme} />;
+
+  if (isHome) return <div className="app-shell" data-theme={theme}>
+    <SiteHeader theme={theme} onToggleTheme={toggleTheme}/>
+    <main className="page-container">
+      <section className="hero-layout">
+        <div>
+          <p className="page-eyebrow">Bring your own key · No account required</p>
+          <h1 className="hero-title">Collective AI Intelligence.<br/><em>Zero Trust,</em><br/>Full Visibility.</h1>
+          <p className="hero-copy">Compare independent model answers, let each model challenge the others, then synthesize the strongest available evidence. You control the provider keys and can inspect every stage.</p>
+          <div className="hero-actions"><a href="/debate" className="button-primary">Launch workspace <span aria-hidden="true">↗</span></a><a href="/how-to-use" className="button-secondary">Explore security & guide</a></div>
+          <div className="trust-list" aria-label="Security highlights"><span>Keys in tab memory</span><span>History in IndexedDB</span><span>No app account</span></div>
+        </div>
+        <ShineBorder as="section" className="surface-card pipeline" aria-label="How a DualMind run works">
+          <div className="pipeline-top"><div><p className="page-eyebrow">A transparent workflow</p><h2 className="section-title" style={{ marginTop: '.4rem' }}>One question. Multiple perspectives.</h2></div><span className="archive-badge">Illustrative</span></div>
+          <div style={{ display: 'grid', gap: '.35rem', marginTop: '.9rem' }}>
+            <div className="pipeline-step"><span className="pipeline-number">01</span><div><h3>Independent generation</h3><p>OpenAI · Gemini · Claude receive the same prompt separately.</p></div><span className="archive-badge">Parallel</span></div>
+            <div className="pipeline-arrow" aria-hidden="true">↓</div>
+            <div className="pipeline-step"><span className="pipeline-number">02</span><div><h3>Directed peer review</h3><p>Each successful answer is critiqued by every other selected model.</p></div><span className="archive-badge">N × (N − 1)</span></div>
+            <div className="pipeline-arrow" aria-hidden="true">↓</div>
+            <div className="pipeline-step"><span className="pipeline-number">03</span><div><h3>Final synthesis</h3><p>Combine available evidence and keep disagreements visible.</p></div><span className="archive-badge">Reviewable</span></div>
+          </div>
+          <div className="quadratic-note"><span aria-hidden="true">⌑</span><span><strong>Privacy by design.</strong> Keys stay in tab memory. Debate history is stored in this browser, never in an account.</span></div>
+        </ShineBorder>
+      </section>
+      <section className="value-grid" aria-label="Product principles">
+        <article className="surface-card value-card"><p className="page-eyebrow">01 · BYOK</p><h3>Your provider accounts, your control</h3><p>Keys are only sent to fulfill operations you start; providers may apply their own usage charges.</p></article>
+        <article className="surface-card value-card"><p className="page-eyebrow">02 · Full visibility</p><h3>Every answer and critique stays inspectable</h3><p>Review independent generations, status, latency, token usage, and peer-review coverage.</p></article>
+        <article className="surface-card value-card"><p className="page-eyebrow">03 · Local first</p><h3>History stays on this device</h3><p>Search, export, or purge IndexedDB records without signing in or syncing to an account.</p></article>
+      </section>
+      <ShineBorder as="section" className="surface-card guide-callout" style={{ marginBottom: '3rem' }}>
+        <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="page-eyebrow">Ready when you are</p><h2 className="section-title" style={{ marginTop: '.35rem' }}>Bring a question. Keep every step in view.</h2></div><a href="/debate" className="button-primary">Start a comparison <span aria-hidden="true">→</span></a></div>
+      </ShineBorder>
+    </main>
+    <footer className="site-footer"><div className="site-footer-inner"><span>DualMind AI · BYOK multi-model comparison</span><span>Model agreement is not proof of correctness.</span><a href="/how-to-use" className="footer-link">Security & guide →</a></div></footer>
+  </div>;
+
+  if (isHistory) return <div className="app-shell" data-theme={theme}>
+    <SiteHeader theme={theme} onToggleTheme={toggleTheme}/>
+    <main className="page-container" style={{ paddingTop: '2.5rem' }}>
+      <p className="page-eyebrow">Browser-local archive</p>
+      <h1 className="section-title" style={{ marginTop: '.45rem', fontSize: 'clamp(1.8rem, 4vw, 2.7rem)' }}>Debate history</h1>
+      <p className="section-copy">Saved only in this browser’s IndexedDB. Provider keys are never included in saved debates.</p>
+      <div className="history-toolbar">
+        <input type="search" className="search-field" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Search prompts or selected models…" aria-label="Search local debate history"/>
+        <div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={exportAllHistory} disabled={!history.length}>Export all to Markdown</button><button type="button" className="button-secondary button-danger" onClick={clearHistory} disabled={!history.length}>Purge Local Storage</button></div>
+      </div>
+      {historyError && <p className="notice" role="alert">{historyError}</p>}
+      <div className="archive-badge" style={{ marginBottom: '.75rem' }}>⌑ Locally Stored · {history.length} {history.length === 1 ? 'debate' : 'debates'}</div>
+      {!filteredHistory.length ? <ShineBorder as="section" className="surface-card empty-state"><h2>{history.length ? 'No matching debates' : 'No saved debates yet'}</h2><p>{history.length ? 'Try a different search term.' : 'Completed workspace runs appear here automatically. Your history remains in this browser.'}</p>{!history.length && <a href="/debate" className="button-primary" style={{ marginTop: '1rem' }}>Open workspace</a>}</ShineBorder> : <ul className="history-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>{filteredHistory.map((item) => <ShineBorder as="li" className="surface-card history-row" key={item.id}><button type="button" onClick={() => openHistory(item)} className="history-open"><span className="history-prompt">{item.prompt}</span><span className="history-meta"><span>{new Date(item.updatedAt ?? item.createdAt).toLocaleString()}</span><span>{(item.selectedModels ?? []).map((id) => modelsById[id]?.name ?? id).join(' · ')}</span><span>{item.status ?? 'Saved'}</span></span></button><div className="history-actions"><button type="button" className="small-action" onClick={() => exportHistoryItem(item)}>Export Markdown</button><button type="button" className="small-action button-danger" onClick={() => deleteHistory(item.id)} aria-label="Delete this debate">Delete</button></div></ShineBorder>)}</ul>}
+    </main>
+    <footer className="site-footer"><div className="site-footer-inner"><span>⌑ IndexedDB · This browser only</span><a href="/how-to-use" className="footer-link">How keys and history work →</a></div></footer>
+  </div>;
+
+  if (isWorkspace) return <div className="app-shell" data-theme={theme}>
+    <a href="#main-content" className="skip-link">Skip to content</a>
+    <SiteHeader theme={theme} onToggleTheme={toggleTheme}/>
+    <main id="main-content" className="page-container-wide">
+      <div className="dashboard-intro"><div><p className="page-eyebrow">Debate workspace · Secure session</p><h1 className="section-title" style={{ marginTop: '.35rem', fontSize: 'clamp(1.65rem, 3vw, 2.3rem)' }}>Compare models, inspect the evidence.</h1><p className="section-copy">Keys remain in this tab’s memory. Add keys, choose models, and run a comparison.</p></div><a href="/history" className="button-secondary">⌑ Local history</a></div>
+      {run && <div className="run-statusbar"><span><strong>{run.status === 'complete' ? 'Synthesis Complete' : run.status === 'partial' ? 'Partial results' : stage || 'Ready'}</strong><span className="run-status-prompt">{run.prompt}</span></span><span>{run.selectedModels.length} selected · {run.reviews.length} reviews</span></div>}
+      <div className="dashboard-grid">
+        <div className="dashboard-main">
+          <ShineBorder as="section" className="panel" aria-labelledby="keys-title">
+            <div className="panel-heading"><div><p className="page-eyebrow">01 · Provider access</p><h2 id="keys-title" className="section-title" style={{ fontSize: '1rem', marginTop: '.25rem' }}>API keys</h2></div><span className="archive-badge">⌑ Keys held only in tab memory</span></div>
+            <div className="panel-body"><div className="provider-grid">{PROVIDERS.map((provider) => <ProviderKeyCard key={provider.id} provider={provider} value={keys[provider.id]} onChange={(value) => { setKeys((current) => ({ ...current, [provider.id]: value })); setKeyTests((current) => ({ ...current, [provider.id]: null })); }} visible={keyVisibility[provider.id]} onToggleVisible={() => setKeyVisibility((current) => ({ ...current, [provider.id]: !current[provider.id] }))} testStatus={keyTests[provider.id]} onTest={() => testProvider(provider.id)} onClear={() => { setKeys((current) => ({ ...current, [provider.id]: '' })); setKeyTests((current) => ({ ...current, [provider.id]: null })); }}/>)}</div><p className="key-trust"><span aria-hidden="true">⌑</span><span>Keys are never saved. They are sent to the app server only with the operation you request; remote deployments require HTTPS. Connection tests make a provider request.</span></p></div>
+          </ShineBorder>
+          <ShineBorder as="section" className="panel" aria-labelledby="models-heading">
+            <div className="panel-heading"><div><p className="page-eyebrow">02 · Independent responses</p><h2 id="models-heading" className="section-title" style={{ fontSize: '1rem', marginTop: '.25rem' }}>Choose models</h2><p className="section-copy">Select up to {maxModels}. Unconfigured providers are skipped.</p></div><span className="archive-badge">{selectedModels.length}/{maxModels} selected · {configuredCount} ready</span></div>
+            <div className="panel-body"><div className="model-options">{models.map((model) => <label key={model.id} className="model-option"><input type="checkbox" checked={selected.includes(model.id)} disabled={!selected.includes(model.id) && selected.length >= maxModels} onChange={() => toggleModel(model.id)}/><span><strong>{model.name}</strong><small>{model.id}</small><small>{keyForModel(model, keys) ? 'Key configured' : 'Key required'}</small></span></label>)}</div>
+              {modelsError && <p className="notice">{modelsError}</p>}
+              {mode === 'advanced' && <div className="advanced-options"><label className="advanced-field">Synthesis model<select className="field" value={synthesizer} onChange={(event) => setSynthesizer(event.target.value)}><option value="auto">Automatic fallback</option>{selectedModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label><label className="advanced-field">Parallel requests<select className="field" value={concurrency} onChange={(event) => setConcurrency(Number(event.target.value))}>{Array.from({ length: maxParallelRequests }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count}</option>)}</select></label></div>}
+              <button type="button" className="text-action" onClick={() => setMode((current) => current === 'simple' ? 'advanced' : 'simple')}>{mode === 'simple' ? 'Show advanced options' : 'Hide advanced options'}</button>
+              <form onSubmit={(event) => { event.preventDefault(); runDebate(); }} className="prompt-form"><label className="prompt-label" htmlFor="prompt">Your question</label><textarea id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={12000} rows={4} placeholder="Ask a question or compare approaches…" className="prompt-field"/><div className="run-toolbar"><div className="estimate">Estimated calls: <strong>{callCount}</strong> ({runnableModels.length} answers + {reviewCallCount} reviews + {synthesisCallCount} synthesis)<br/>Provider usage may incur charges; exact prices are not estimated.</div><button type="submit" disabled={busy.current || !prompt.trim() || !selectedModels.length} className="button-primary">{busy.current ? `${stage || 'Running'}…` : run ? 'Run another debate' : 'Run debate'}</button></div>{notice && <p className="notice" role="alert">{notice}</p>}</form>
+            </div>
+          </ShineBorder>
+          {run && <section aria-live="polite" aria-labelledby="generation-heading">
+            <div className="section-row"><div><p className="page-eyebrow">03 · Independent generation</p><h2 id="generation-heading" className="section-title" style={{ marginTop: '.3rem' }}>Model responses</h2><p className="section-copy">{run.prompt}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => runDebate({ prior: run })} disabled={busy.current || !run.results.some((item) => item.status !== 'success')} className="button-secondary">Retry failed models</button><button type="button" onClick={exportAnswer} className="button-secondary">Export to Markdown</button></div></div>
+            <div className="response-grid">{run.selectedModels.map((id) => modelsById[id]).filter(Boolean).map((model) => <ModelPanel key={model.id} model={model} result={run.results.find((item) => item.modelId === model.id)} onRetry={run.results.find((item) => item.modelId === model.id)?.status !== 'success' ? () => retryModel(model.id) : null}/>)}</div>
+            <section className="review-section" aria-labelledby="review-heading"><div className="section-row"><div><p className="page-eyebrow">04 · N × (N − 1) review pipeline</p><h2 id="review-heading" className="section-title" style={{ marginTop: '.3rem' }}>Peer reviews</h2><p className="section-copy">Each selected model reviews every other successful answer. Review output is critique, not verification.</p></div><div className="flex items-center gap-2"><span className="archive-badge">{run.reviews.filter((item) => item.status === 'success').length}/{run.reviews.length} complete</span>{run.reviews.some((item) => ['error', 'timeout'].includes(item.status)) && <button type="button" onClick={retryFailedReviews} disabled={busy.current} className="button-secondary">Retry failed</button>}</div></div>{run.selectedModels.length < 2 && <p className="notice">Single-model response: peer review is unavailable because only one model was selected.</p>}<div className="review-grid">{run.reviews.map((review) => <ReviewCard key={resultKey(review.reviewerModel, review.targetModel)} review={review} modelsById={modelsById}/>)}</div></section>
+            <ShineBorder as="section" className="synthesis-card" aria-labelledby="final-heading"><div className="section-row"><div><p className="page-eyebrow">05 · Consolidated response</p><h2 id="final-heading" className="section-title" style={{ marginTop: '.3rem' }}>Final synthesis</h2></div><div className="flex flex-wrap gap-2">{run.synthesis?.status === 'success' && <button type="button" onClick={() => navigator.clipboard.writeText(run.synthesis.text).then(() => setNotice('Copied final answer.')).catch(() => setNotice('Clipboard access is unavailable in this browser.'))} className="button-secondary">Copy</button>}{run.synthesis?.status === 'error' && <button type="button" onClick={retrySynthesis} disabled={busy.current} className="button-secondary">Retry synthesis</button>}<button type="button" onClick={exportAnswer} className="button-secondary">Export</button></div></div><div className="flex flex-wrap items-center justify-between gap-2" style={{ marginTop: '.55rem' }}><StatusPill status={run.synthesis?.status ?? (busy.current ? 'pending' : 'queued')} kind="synthesis"/>{run.synthesis?.modelId && <span className="compat-note">Synthesized by {modelsById[run.synthesis.modelId]?.name ?? run.synthesis.model} · {run.synthesis.selectionReason}</span>}</div>{!run.synthesis && <p className="response-text">Synthesis will start after available answers and reviews finish.</p>}{run.synthesis?.status === 'success' && <><div className="response-text">{run.synthesis.text}</div>{run.synthesis.reviewCoverage?.completed < run.synthesis.reviewCoverage?.total && <p className="notice">Partial synthesis: some peer reviews failed or were unavailable ({run.synthesis.reviewCoverage.completed}/{run.synthesis.reviewCoverage.total} complete).</p>}</>}{run.synthesis?.status === 'error' && <div className="error-note">{run.synthesis.error.message}{run.synthesis.attempts?.map((attempt) => <p key={attempt.modelId}>{modelsById[attempt.modelId]?.name ?? attempt.modelId}: {attempt.error.message}</p>)}</div>}<UsageMetrics usage={run.synthesis?.usage ?? usage}/><p className="compat-note" style={{ marginTop: '.75rem' }}>Model agreement and peer review do not prove factual correctness. Verify important claims independently.</p></ShineBorder>
+          </section>}
+          {!run && <section className="first-run-preview">
+            <div className="section-row"><div><p className="page-eyebrow">03 · Live comparison</p><h2 className="section-title" style={{ marginTop: '.3rem' }}>Your evidence, stage by stage</h2><p className="section-copy">Run a prompt to populate independent answers, cross-reviews, and the final synthesis.</p></div></div>
+            <div className="response-grid">{selectedModels.map((model) => <ModelPanel key={model.id} model={model} result={{ status: 'queued' }}/>)}</div>
+            <section className="review-section"><div className="section-row"><div><p className="page-eyebrow">04 · N × (N − 1)</p><h2 className="section-title" style={{ marginTop: '.3rem' }}>Peer reviews</h2><p className="section-copy">Each selected model will critique every other successful response.</p></div><span className="archive-badge">⌑ Pending review</span></div><div className="subtle-card empty-state"><p>Reviews appear here as soon as independent answers are available.</p></div></section>
+            <section className="synthesis-card"><div className="section-row"><div><p className="page-eyebrow">05 · Final synthesis</p><h2 className="section-title" style={{ marginTop: '.3rem' }}>One response from the available evidence</h2></div><StatusPill status="queued" kind="synthesis"/></div><p className="response-text">The synthesizer will summarize agreements, differences, and uncertainty after reviews finish.</p></section>
+          </section>}
+        </div>
+        <aside className="dashboard-sidebar" aria-label="Run details">
+          <ShineBorder as="section" className="panel"><div className="panel-heading"><div><p className="page-eyebrow">Run estimate</p><h2 className="section-title" style={{ fontSize: '.95rem', marginTop: '.25rem' }}>Call overview</h2></div></div><div className="sidebar-stats"><div className="subtle-card stat-block"><strong>{runnableModels.length}</strong><span>Independent answers</span></div><div className="subtle-card stat-block"><strong>{reviewCallCount}</strong><span>Potential peer reviews</span></div><div className="subtle-card stat-block"><strong>{synthesisCallCount}</strong><span>Synthesis calls</span></div></div><p className="compat-note" style={{ padding: '0 1rem 1rem' }}>Additional retries and tests may add provider calls.</p></ShineBorder>
+          <ShineBorder as="section" className="panel sidebar-trust"><div className="panel-body"><p className="page-eyebrow">⌑ Privacy at a glance</p><p><strong>Keys</strong> · Volatile tab memory</p><p><strong>History</strong> · Browser IndexedDB</p><p><strong>Server</strong> · Operations only, no key history</p><a href="/how-to-use">Read the security guide →</a></div></ShineBorder>
+        </aside>
+      </div>
+    </main>
+    <footer className="site-footer"><div className="site-footer-inner"><span>DualMind AI · Keys are not saved to browser storage.</span><a href="/how-to-use" className="footer-link">Security & guide →</a></div></footer>
+  </div>;
+
   return <div className="min-h-screen overflow-x-hidden bg-[#070a12] text-slate-100">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-cyan-300 focus:px-4 focus:py-2 focus:text-slate-950">Skip to content</a>
     <SiteHeader onHistory={toggleHistory} historyOpen={historyOpen}/>

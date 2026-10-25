@@ -1,125 +1,251 @@
 # DualMind AI
 
-DualMind AI is a no-signup, bring-your-own-key workspace for comparing language-model responses. Selected models answer the same prompt independently, review other models' successful answers, and contribute to a final synthesis. The workspace keeps answers, review coverage, and uncertainty visible so you can inspect the available evidence.
+DualMind AI is a web app for asking several AI models the same question, comparing their answers, asking them to review one another, and producing a final summary. You bring the API keys for the providers you want to use. This is called **Bring Your Own Key (BYOK)**.
 
-**Model agreement is not proof that a claim is correct.** Verify important claims independently, especially for current or high-impact decisions.
+This guide is written for people who are new to the project. It explains what the app does, how to run it on your computer, how provider keys and history work, and how to troubleshoot common problems.
 
-The landing page and debate workspace are at **/**. The beginner guide is at **/how-to-use**.
+> **Important:** AI models can make mistakes. Agreement between several models does not prove that an answer is true. Check important claims using reliable, independent sources.
 
 ## Contents
 
-- [Features](#features)
-- [Debate workflow](#debate-workflow)
-- [Architecture](#architecture)
-- [Supported models](#supported-models)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [Provider keys](#provider-keys)
-- [Environment configuration](#environment-configuration)
-- [Provider usage and cost](#provider-usage-and-cost)
-- [History and privacy](#history-and-privacy)
-- [HTTP API](#http-api)
-- [Database status](#database-status)
-- [Development commands](#development-commands)
-- [Testing and build](#testing-and-build)
-- [Deployment notes](#deployment-notes)
-- [Repository layout](#repository-layout)
+- [What the app does](#what-the-app-does)
+- [Pages in the app](#pages-in-the-app)
+- [How a debate works](#how-a-debate-works)
+- [Privacy and API keys](#privacy-and-api-keys)
+- [What you need](#what-you-need)
+- [Run the app on your computer](#run-the-app-on-your-computer)
+- [Set up provider API keys](#set-up-provider-api-keys)
+- [Configuration options](#configuration-options)
+- [Provider usage and costs](#provider-usage-and-costs)
+- [Where your history is saved](#where-your-history-is-saved)
+- [How the project is organized](#how-the-project-is-organized)
+- [Useful development commands](#useful-development-commands)
+- [HTTP API reference](#http-api-reference)
+- [Build and deploy](#build-and-deploy)
 - [Troubleshooting](#troubleshooting)
-- [Known limitations](#known-limitations)
+- [Current limitations](#current-limitations)
 
-## Features
+## What the app does
 
-- Independent first responses from OpenAI, Google Gemini, and Anthropic Claude.
-- Directed peer reviews of successful answers. A model is not asked to review its own answer.
-- A synthesis stage based on the answers and reviews available to it.
-- Streaming text for independent answers, with per-operation status and elapsed time.
-- Provider-reported token usage when supplied.
-- Per-model answer retry and separate synthesis retry controls.
-- Configurable selected-model and parallel-operation limits, and a preferred synthesizer.
-- Browser-local history, reopening/deletion/clear actions, and Markdown export.
-- Responsive marketing page and navigation, plus the beginner guide at **/how-to-use**.
-- Request validation, prompt and output limits, provider timeouts, API rate limits, and sanitized provider errors.
+DualMind AI can:
 
-## Debate workflow
+- Send the same question to multiple supported AI models independently.
+- Show each answer as it streams into the workspace.
+- Ask selected models to review other models' successful answers.
+- Show the reviews and the final synthesis separately from the original answers.
+- Show operation statuses, elapsed time, and token usage when a provider reports it.
+- Keep your provider keys in the current browser tab's memory.
+- Save debate history in the browser, on the device where you used the app.
+- Search history, reopen a debate, delete it, or export it as Markdown.
+- Switch between light and dark themes.
 
-1. Add keys for providers you plan to use, choose models, and enter a prompt.
-2. Each selected model receives the original prompt independently. It does not see other models' first answers.
-3. For each successful answer, the app may ask every other selected model to review it. Reviews look for gaps, assumptions, and possible errors; they remain model-generated output.
-4. An eligible selected model synthesizes the available answers and reviews. If an attempt fails, the app can try another eligible configured model.
-5. The workspace shows each response, review, synthesis, status, and provider-reported usage when available. A failure in one operation does not erase successful results from other operations.
+The application has two parts:
 
-Single-model runs are supported and skip cross-review. For **N** selected models with all answers available, a complete run may use up to **N answer calls + N × (N - 1) directed review calls + 1 synthesis call**. Retries and provider connection tests add calls. This is a call count, not a price estimate.
+1. The **client** is the website you see in your browser. It is built with React and Vite.
+2. The **server** is a Node.js and Express API. It validates requests and sends model operations to the selected provider.
 
-## Architecture
+The app does not require an account or a PostgreSQL database for its current workflow.
 
-~~~mermaid
-flowchart LR
-  Browser[React and Vite workspace]
-  Keys[Provider keys in current-tab memory]
-  History[IndexedDB history in this browser]
-  Proxy[Vite development API proxy]
-  API[Express API with Zod validation and rate limits]
-  Adapters[Provider adapters]
-  OpenAI[OpenAI API]
-  Gemini[Google Gemini API]
-  Claude[Anthropic API]
+## Pages in the app
 
-  Browser --> Keys
-  Browser --> History
-  Browser --> Proxy --> API --> Adapters
-  Adapters --> OpenAI
-  Adapters --> Gemini
-  Adapters --> Claude
+| Address | What you can do there |
+| --- | --- |
+| `/` | Learn how the product works and review its privacy approach. |
+| `/debate` | Add provider keys, choose models, ask a question, and inspect answers, reviews, and synthesis. |
+| `/history` | Search and manage debates saved in this browser. |
+| `/how-to-use` | Read the guide to keys, local history, and cross-model review. |
+
+You can use the navigation bar to move between these pages. Your provider keys are kept in browser memory and are not intentionally saved when you navigate between pages in the same tab.
+
+## How a debate works
+
+1. **Choose models.** Select the models you want to compare. The models currently available are listed in [Supported models](#supported-models).
+2. **Enter a question.** Type a prompt in the workspace.
+3. **Get independent answers.** Each selected model receives the original prompt. The first model's answer is not included in another model's initial request.
+4. **Review other answers.** A selected model can review another selected model's successful answer. A model does not review its own answer.
+5. **Synthesize.** An eligible model receives the available answers and reviews and creates a final synthesis. The workspace can try another eligible model if a synthesis attempt fails.
+6. **Inspect and save.** Read the individual answers, reviews, statuses, usage information, and synthesis. The run is saved to this browser's history.
+
+### How many model calls can a debate make?
+
+For **N** selected models, a complete run can make:
+
+- Up to **N** independent answer calls.
+- Up to **N x (N - 1)** directed review calls. Each ordered reviewer-and-answer pair is a separate call; self-reviews are excluded.
+- A synthesis call. If a synthesis attempt fails, another eligible model may be tried.
+
+For example, three models can make three answer calls and up to six review calls, followed by one or more synthesis attempts. Connection tests and retries add calls. The workspace's call overview is an operation count, **not** a price estimate. Calls that cannot run because a key is missing or an answer failed may be skipped.
+
+Reviews and synthesis are generated by AI too. They are useful perspectives, not independent fact-checking or a guarantee of correctness.
+
+## Privacy and API keys
+
+It is important to understand where information goes:
+
+- **Provider keys** are kept in the active browser tab's JavaScript memory. They are not written to the app's browser history database. Reloading or closing the tab clears the in-memory keys.
+- **Provider operations** send the relevant key, prompt, and operation data from the browser to the DualMind Express API. The API uses the key to make the requested provider call. The key is not a server-side app setting.
+- **Provider accounts** receive the requests sent to their services. Each provider applies its own terms, retention, privacy, quota, and billing policies.
+- **Debate history** is stored locally in the browser using IndexedDB. It can contain prompts, model answers, reviews, synthesis, statuses, timestamps, and usage metadata. It is not synced to another browser or device by this app.
+- **Theme preference** may be saved in browser local storage. This is separate from provider keys.
+- **Server history** is not part of the active workflow. The app does not save debate history to PostgreSQL.
+
+Local browser storage is not a secure vault. Anyone who can use your browser profile may be able to access its saved history. Clearing site data, using private browsing, or browser storage restrictions may remove or prevent history.
+
+For a remote deployment, use **HTTPS**. The client blocks sending provider keys to a remote site over plain HTTP. Local development on `localhost` is allowed to use HTTP.
+
+This project does not include user login or account-based access control. Do not expose a public instance to untrusted users without adding appropriate authentication, authorization, abuse controls, and operational monitoring. Never put provider keys in source code, a checked-in `.env` file, or frontend build variables.
+
+## What you need
+
+Install these before starting:
+
+- **Node.js 22 or newer.** Node.js includes npm.
+- **npm 10 or newer** is recommended for the included npm workspace setup.
+- An API account and a usable API key for each provider you want to call.
+- A terminal: PowerShell on Windows, or Terminal on macOS/Linux.
+
+You can install Node.js from [nodejs.org](https://nodejs.org/). After installing it, open a new terminal and check:
+
+~~~text
+node --version
+npm --version
 ~~~
 
-The client is React, Vite, and Tailwind CSS. The server is Node.js and Express. In local development, Vite forwards **/api** requests to Express. The API validates each operation, selects an adapter for a registered model, and forwards the supplied provider key to that provider.
+The Node.js version should be `v22` or higher.
 
-The active workflow does not use PostgreSQL for conversation storage. Browser history is stored in IndexedDB. See [Database status](#database-status) before using the retained SQL files.
+## Run the app on your computer
 
-## Supported models
+### 1. Open the project folder in a terminal
 
-The model registry is explicit in **server/src/providers/registry.js**. Models are not discovered dynamically.
+Change directory to the folder containing this README and `package.json`.
 
-| Provider | Current model ID | Capabilities |
-| --- | --- | --- |
-| OpenAI | **gpt-5.5** | Generation, review, synthesis, streaming |
-| Google Gemini | **gemini-3.8-flash** | Generation, review, synthesis, streaming |
-| Anthropic Claude | **claude-sonnet-4-6** | Generation, review, synthesis, streaming |
+For example, in PowerShell:
 
-Provider access, permissions, quotas, billing, and model availability are controlled by each provider account. Update the registry and adapter to add or change an integration.
+~~~powershell
+cd C:\path\to\DualMind-AI
+~~~
 
-## Requirements
+Replace `C:\path\to\DualMind-AI` with the actual location of your downloaded or cloned project.
 
-- Node.js 22 or newer.
-- npm 10 or newer. This repository uses npm workspaces and includes a lockfile.
-- An API account and usable key for each provider/model you plan to call.
+### 2. Install the project dependencies
 
-## Quick start
-
-From the project root, install dependencies from the lockfile and start the API and web client together:
+On Windows PowerShell:
 
 ~~~powershell
 npm.cmd ci
+~~~
+
+On macOS or Linux:
+
+~~~bash
+npm ci
+~~~
+
+This reads `package-lock.json` and installs the exact dependency versions recorded for the project. You normally only need to do this once, and again whenever dependencies change.
+
+### 3. Start the app
+
+On Windows PowerShell:
+
+~~~powershell
 npm.cmd run dev
 ~~~
 
-Open **http://localhost:5173**. The API health endpoint is **http://localhost:3000/api/health**. A healthy Express process returns JSON status **ok**; this check does not test provider keys or PostgreSQL.
+On macOS or Linux:
 
-To start the API and client separately, use two terminals:
+~~~bash
+npm run dev
+~~~
+
+This starts both the Express API and the Vite website. Leave this terminal open while using the app. The terminal will show startup messages and errors.
+
+### 4. Open the website
+
+Open **http://localhost:5173** in your browser. The API's health check is **http://localhost:3000/api/health**. If the API is running, the health check returns JSON with `"status": "ok"`.
+
+The health check only confirms that the API process is responding. It does not test your provider keys, account balance, or provider availability.
+
+### Stop the app
+
+Return to the terminal running the app and press **Ctrl+C**.
+
+### Start the client and API in separate terminals
+
+You can run the two parts separately when you want to see their logs independently.
+
+Terminal 1, start the API:
 
 ~~~powershell
-# Terminal 1: API
 npm.cmd run dev --workspace=server
+~~~
 
-# Terminal 2: Vite client
+Terminal 2, start the website:
+
+~~~powershell
 npm.cmd run dev --workspace=client
 ~~~
 
-The client needs the API for model discovery and debate requests. **npm.cmd run start** starts only the API; it does not start Vite.
+On macOS or Linux, use `npm` instead of `npm.cmd`. The client calls the API through Vite's `/api` development proxy.
 
-### If port 3000 is already in use
+## Set up provider API keys
 
-Choose an available API port and point the Vite proxy to the same port in the PowerShell terminal where you start the app:
+1. Open **http://localhost:5173/debate**.
+2. Find the API key card for the provider you want to use.
+3. Paste that provider's key into its field. You can use **Show** to check what you typed.
+4. Optionally select **Test**. This sends a real, small request to the provider.
+5. Choose one or more models, enter your question, and select **Run debate**.
+
+You need a valid provider key with API access. A subscription to a provider's chat website does not necessarily include API access. Check the provider's own developer dashboard if a key is rejected.
+
+Connection tests and retries are real requests. They may use quota or create a charge. Keep keys private and remove them from the workspace when you are finished. Never paste a real key into an issue, screenshot, chat, or source file.
+
+## Supported models
+
+The model registry is currently fixed in `server/src/providers/registry.js`; model IDs are not discovered dynamically.
+
+| Provider | Model ID shown to the API |
+| --- | --- |
+| OpenAI | `gpt-5.5` |
+| Google Gemini | `gemini-3.8-flash` |
+| Anthropic Claude | `claude-sonnet-4-6` |
+
+Provider model names, API availability, pricing, access requirements, and capabilities can change. The account associated with your key must be allowed to use the selected model.
+
+## Configuration options
+
+The server has safe defaults. You can optionally create a root `.env` file to change them.
+
+In Windows PowerShell:
+
+~~~powershell
+Copy-Item .env.example .env
+~~~
+
+In macOS or Linux:
+
+~~~bash
+cp .env.example .env
+~~~
+
+Open `.env` in a text editor and change only the settings you need. These settings are read by the server at startup, so restart the server after changing them.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `PORT` | `3000` | Port where the Express API listens. |
+| `CLIENT_ORIGIN` | `http://localhost:5173` | Website origin allowed to make cross-origin API requests. Use the exact origin for your deployed website. |
+| `REQUEST_TIMEOUT_MS` | `45000` | Maximum time, in milliseconds, to wait for a provider request. |
+| `MAX_PROMPT_CHARS` | `12000` | Maximum number of prompt characters accepted by the API. |
+| `MAX_OUTPUT_TOKENS` | `2048` | Output-token limit requested from providers. |
+| `MAX_SELECTED_MODELS` | `4` | Maximum selected model count accepted by the API (the current registry has three models). |
+| `MAX_PARALLEL_REQUESTS` | `4` | Maximum parallel operation limit advertised by the API. |
+
+The server validates these values at startup. Invalid values stop the server with an error. Do **not** add provider API keys to `.env`; users enter those keys in the browser for the operations they request.
+
+### Use a different API port during development
+
+If port 3000 is already being used, set `PORT` for Express and `API_ORIGIN` for Vite to the same new port.
+
+In PowerShell, from the project root:
 
 ~~~powershell
 $env:PORT = '3001'
@@ -127,182 +253,175 @@ $env:API_ORIGIN = 'http://localhost:3001'
 npm.cmd run dev
 ~~~
 
-Then open **http://localhost:5173** and check **http://localhost:3001/api/health**. Use another port if 3001 is occupied.
+In macOS/Linux:
 
-## Provider keys
-
-1. Open the workspace and find **Provider setup**.
-2. Paste a key in the card for the matching provider.
-3. Optionally select **Test connection** to send a short provider request.
-4. Select the models, enter your prompt, and run the debate.
-
-A connection test is a real provider request and may consume quota or incur a charge. Keys are held in React memory in the current tab and are cleared when the tab reloads or closes. The client does not save keys to browser storage.
-
-For an operation, the key is sent to the Express server and used for the provider request. The server does not write keys to debate history or logs. The root **.env** file is for app settings only; never put provider keys in it, source files, or client build variables.
-
-Use HTTPS for remote deployments. This project does not include user authentication. Do not expose a development server publicly or provide a shared provider key for anonymous visitors.
-
-## Environment configuration
-
-The root **.env** file is optional; the server supplies defaults. To create a local copy of the safe template:
-
-~~~powershell
-Copy-Item .env.example .env
+~~~bash
+PORT=3001 API_ORIGIN=http://localhost:3001 npm run dev
 ~~~
 
-**.env** and other **.env.*** files are ignored by Git. **.env.example** is intentionally included and contains app settings, not provider secrets.
+Then open **http://localhost:5173** and check **http://localhost:3001/api/health**. These variables only affect the terminal where you set them. Open a fresh terminal to return to the default.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| **PORT** | 3000 | Express API listening port. |
-| **CLIENT_ORIGIN** | http://localhost:5173 | Browser origin allowed by API CORS. |
-| **REQUEST_TIMEOUT_MS** | 45000 | Provider request timeout in milliseconds. |
-| **MAX_PROMPT_CHARS** | 12000 | Maximum accepted prompt length. |
-| **MAX_OUTPUT_TOKENS** | 2048 | Output-token limit requested from a provider. |
-| **MAX_SELECTED_MODELS** | 4 | Default selected-model limit; server accepts configured values up to 6. |
-| **MAX_PARALLEL_REQUESTS** | 4 | Default parallel-operation limit exposed to the client. |
+## Provider usage and costs
 
-Settings are validated at server startup; an invalid value prevents startup. **API_ORIGIN** is a Vite development setting for routing **/api** to a non-default API port. It is not a provider key.
+DualMind AI does not sell model inference. Providers may charge the account connected to a key for answers, peer reviews, synthesis attempts, and connection tests. Each provider controls its own prices and billing.
 
-## Provider usage and cost
+The app displays estimated operation counts and token usage when a provider returns it. It does **not** calculate a monetary estimate. Check the provider's current pricing and billing dashboard before running large prompts or selecting many models. Retries can make additional billable calls.
 
-DualMind AI does not charge for model inference. Providers may charge the account associated with each key for answer generation, reviews, synthesis, and connection tests according to their current pricing and account terms.
+## Where your history is saved
 
-The workspace shows the planned operation count and provider-reported token usage when available. It does not currently estimate monetary prices. Check each provider's usage and billing dashboard for charges. Lower the parallel-operation setting if you prefer fewer requests to run simultaneously.
+History is stored in **IndexedDB**, a database built into your web browser. It stays in the browser profile and device where you used DualMind AI. It does not automatically follow you to another browser or computer.
 
-## History and privacy
+The History page lets you:
 
-- **Provider keys:** held in current-tab memory, sent to the app server only with operations that use them, and excluded from history.
-- **Debates:** stored in IndexedDB in the current browser profile. Records include prompts, selected models, answers, reviews, synthesis, statuses, timestamps, and usage metadata.
-- **Server storage:** the active API does not save debates in PostgreSQL.
-- **Markdown exports:** include the prompt, answers, available reviews, and synthesis. Review an export before sharing it.
-- **Deletion:** the workspace can delete a record or clear local history. This does not remove provider-side records, browser backups, or copies and exports already made.
+- Search saved debates.
+- Reopen a saved debate in the workspace.
+- Export one debate or all debates as Markdown.
+- Delete a debate or purge the local history.
 
-History is not synced across accounts or devices. Browser settings can remove local data; private or restricted browsing can prevent local storage.
+Exports may include your original prompt, model answers, reviews, and synthesis. Read an export before sharing it. Deleting local history does not recall a file you already exported, erase a copy saved elsewhere, or delete information retained by a provider under its own policies.
 
-## HTTP API
+If history is unavailable, check that browser storage is enabled and that you are using the same browser profile. Private browsing or cleared site data can remove it.
 
-In local development, same-origin **/api** requests are forwarded by Vite to Express.
+## How the project is organized
 
-| Method and route | Purpose | Main request fields |
-| --- | --- | --- |
-| **GET /api/health** | Confirms the Express process responds; does not check providers or PostgreSQL. | None |
-| **GET /api/models** | Lists the registered providers/models and workflow limits. | None |
-| **POST /api/provider-test** | Sends a short test generation. | modelId, apiKey |
-| **POST /api/generate** | Generates one independent response. | prompt, modelId, apiKey |
-| **POST /api/generate/stream** | Streams an independent response with server-sent events: delta, done, or error. | prompt, modelId, apiKey |
-| **POST /api/review** | Reviews a target answer and rejects self-review. | prompt, answer, reviewer modelId, targetModel, apiKey |
-| **POST /api/synthesize** | Synthesizes supplied answers and available reviews. | prompt, modelId, apiKey, results, reviews |
+~~~text
+DualMind-AI/
+|-- client/                         # Website that runs in the browser
+|   |-- public/
+|   |   |-- dualmind-wordmark.png   # Brand image used in the navigation
+|   |   `-- duamind-logo.png        # Existing logo asset
+|   |-- src/
+|   |   |-- AppV2.jsx               # Active pages and debate workspace
+|   |   |-- HowToUse.jsx            # Security and usage guide page
+|   |   |-- SiteHeader.jsx          # Shared navigation and theme control
+|   |   |-- ShineBorder.jsx         # Decorative animated border
+|   |   |-- debate.js               # Review-pair and synthesis helpers
+|   |   |-- history.js              # IndexedDB history helpers
+|   |   |-- index.css               # Theme, layout, and component styles
+|   |   `-- main.jsx                # React application entry point
+|   |-- index.html
+|   `-- vite.config.js              # Vite config and /api development proxy
+|-- server/
+|   |-- migrations/                 # Retained SQL from an older design; inactive
+|   `-- src/
+|       |-- config.js               # Validates server environment settings
+|       |-- debate-app.js           # Express API routes and request validation
+|       |-- index.js                # Starts the Express server
+|       |-- providers/              # Model registry, provider adapters, errors
+|       |-- db/                     # Retained PostgreSQL helpers; inactive
+|       `-- *.test.js               # Automated server and rendering tests
+|-- .env.example                   # Safe example server settings
+|-- package.json                   # Root commands and npm workspaces
+`-- package-lock.json              # Locked dependency versions
+~~~
 
-Operation payloads are validated with Zod. JSON bodies are limited to 768 KB; prompt, model, and answer inputs have length checks, and model IDs must exist in the registry. Operation routes are rate-limited to **80 requests per IP per 15 minutes**. Responses disable caching. Public provider errors are sanitized; failure logs include provider and error-code context, not request credentials.
+`client/src/main.jsx` loads `AppV2.jsx`. `client/src/App.jsx` is an older file and is not the active entry point. The active debate history is stored in browser IndexedDB; the retained SQL migration and database helper files are not used by the current app.
 
-## Database status
+## Useful development commands
 
-PostgreSQL is **not required** to run the current app. The active client stores history in IndexedDB, and Express does not connect to PostgreSQL or expose server-side conversation-history routes.
+Run commands from the project root unless the command includes `--workspace`.
 
-The repository retains **server/migrations/001_initial_schema.sql**, **server/migrations/002_workflow_history.sql**, and database helper files from an earlier persistence design. They are not used by the active workflow and should not be applied as part of the current setup. Automated tests check migration-file formatting; they do not run migrations or verify database connectivity.
-
-## Development commands
-
-Run these from the project root unless a workspace is specified.
-
-| Command | Description |
+| Command | What it does |
 | --- | --- |
-| **npm.cmd ci** | Installs dependencies from package-lock.json. |
-| **npm.cmd run dev** | Starts Express and Vite together. |
-| **npm.cmd run build** | Builds the client into client/dist/. |
-| **npm.cmd test** | Runs Vitest in the server workspace. |
-| **npm.cmd run start** | Starts only Express. |
-| **npm.cmd run dev --workspace=server** | Starts the API in watch mode. |
-| **npm.cmd run dev --workspace=client** | Starts only the Vite client. |
-| **npm.cmd run preview --workspace=client** | Previews the built client; does not start the API. |
+| `npm.cmd ci` | Installs locked dependencies on Windows. Use `npm ci` on macOS/Linux. |
+| `npm.cmd run dev` | Starts both the API and the website for local development. |
+| `npm.cmd run build` | Creates the production website files in `client/dist/`. |
+| `npm.cmd test` | Runs the automated Vitest suite in the server workspace. |
+| `npm.cmd run start` | Starts only the Express API; it does not start the website. |
+| `npm.cmd run dev --workspace=server` | Starts only the API in watch mode. |
+| `npm.cmd run dev --workspace=client` | Starts only the Vite website. |
+| `npm.cmd run preview --workspace=client` | Previews the built website; it does not start the API. |
 
-## Testing and build
+On macOS and Linux, replace `npm.cmd` with `npm`.
 
-Run the current test suite and production build:
+### Run the tests and production build
 
 ~~~powershell
 npm.cmd test
 npm.cmd run build
 ~~~
 
-Vitest covers API validation and error handling, workflow behavior, provider adapters, database helper behavior, migration-file formatting, and server-rendered client views. Provider adapters are mocked in automated tests. Passing tests do not verify live credentials, account quotas, billing, or external provider availability.
+The tests use mocked provider adapters. Passing tests confirms the tested application behavior; it does not test real provider keys, quotas, billing, or provider uptime.
 
-The production build writes static assets to **client/dist/**. A deployed site must route API requests to an Express server.
+## HTTP API reference
 
-## Deployment notes
+During local development, Vite forwards website requests beginning with `/api` to the Express server.
 
-1. Build the client with **npm run build** and deploy **client/dist/** to a static host or serve it from a production web server.
-2. Route **/api/** requests to the Express API.
-3. Set **CLIENT_ORIGIN** to the exact deployed web origin and configure server settings in the hosting platform.
-4. Use HTTPS between the browser and app server because operation requests contain the user's provider key.
-5. Add access controls, monitoring, and abuse protections appropriate for the intended audience.
+| Method and route | Purpose |
+| --- | --- |
+| `GET /api/health` | Checks that the API process responds. |
+| `GET /api/models` | Returns registered providers, models, and workflow limits. |
+| `POST /api/provider-test` | Makes a short test generation with the selected model and key. |
+| `POST /api/generate` | Generates one response for a prompt. |
+| `POST /api/generate/stream` | Streams a response using Server-Sent Events. |
+| `POST /api/review` | Reviews another model's answer; rejects self-review. |
+| `POST /api/synthesize` | Synthesizes submitted answers and reviews. |
 
-The Vite proxy is for development only. The API has no user authentication and its built-in rate limit is per IP. Do not publish the development server as a production service without appropriate protections.
+The POST routes receive JSON. Operations that call a provider include its `modelId` and `apiKey`. Generation also includes `prompt`; review includes `answer` and `targetModel`; synthesis includes `results` and `reviews`. Requests are validated on the server, and unsupported model IDs or invalid data are rejected.
 
-## Repository layout
+The API accepts JSON request bodies up to 768 KB. Provider operation routes are limited to 80 requests per client IP in a 15-minute window. Public provider errors are sanitized before being returned to the browser. A production service should add authentication and other protections appropriate to its users and hosting environment.
 
-~~~text
-.
-├── client/
-│   ├── public/duamind-logo.png        # Supplied DualMind AI wordmark
-│   ├── src/
-│   │   ├── AppV2.jsx                  # Active landing page and debate workspace
-│   │   ├── HowToUse.jsx               # Beginner guide route
-│   │   ├── SiteHeader.jsx             # Shared responsive header and wordmark
-│   │   ├── debate.js                  # Client workflow helpers
-│   │   ├── history.js                 # Browser IndexedDB history
-│   │   ├── index.css                  # Tailwind import and app styles
-│   │   └── main.jsx                   # React entry point
-│   └── vite.config.js                 # React, Tailwind, development API proxy
-├── server/
-│   ├── migrations/                    # Retained SQL; not used by active app
-│   └── src/
-│       ├── debate-app.js              # Express API routes and validation
-│       ├── config.js                  # Validated server settings
-│       ├── providers/                 # Registry, adapters, safe provider errors
-│       ├── db/                        # Retained, inactive PostgreSQL helpers
-│       └── *.test.js                  # Vitest tests
-├── .env.example                       # Safe server configuration template
-├── package.json                       # npm workspaces and root commands
-└── package-lock.json                  # Locked dependency graph
+## Build and deploy
+
+To build the website:
+
+~~~powershell
+npm.cmd run build
 ~~~
 
-**client/src/main.jsx** loads **AppV2.jsx**. **client/src/App.jsx** is retained but is not the active entry point.
+The output is placed in `client/dist/`. The build creates the frontend only; the Express API must also be deployed to handle `/api` requests.
+
+For a remote deployment:
+
+1. Host the built frontend and the Express API.
+2. Route `/api/` requests from the website to the Express API.
+3. Set `CLIENT_ORIGIN` to the exact origin of the deployed website.
+4. Use HTTPS between the browser and the application server.
+5. Add authentication, authorization, rate limiting or abuse controls, monitoring, and other safeguards suitable for your use case.
+6. Configure server environment settings through your hosting provider. Do not place user provider keys in frontend configuration.
+
+The Vite `/api` proxy is for local development, not production. The current API has no user authentication and its request limit is per IP. Do not run an unrestricted public instance with these defaults.
 
 ## Troubleshooting
 
-### Browser shows a directory listing or blank page
+### The browser page is blank or shows the wrong page
 
-Open the Vite address, normally **http://localhost:5173**, rather than the API on port 3000. Express returns JSON under **/api**; it does not serve the development client.
+For local development, open **http://localhost:5173** for the website. Port 3000 is the API; visiting it directly does not open the React application.
 
-### Port 3000 is already in use
+### The website says it cannot load models
 
-Select another available port and set both **PORT** and **API_ORIGIN** as described in [Quick start](#quick-start), then restart the root development command.
+Make sure the API is running and visit **http://localhost:3000/api/health**. Restart the app if necessary. If you changed the API port, set both `PORT` and `API_ORIGIN` as described in [Use a different API port during development](#use-a-different-api-port-during-development).
 
-### No models appear
+### Port 3000 is busy
 
-Confirm Express is running and **/api/health** responds. If the client uses a different origin, set **CLIENT_ORIGIN** to that exact origin and restart the API. In local development, the client should use the Vite **/api** proxy.
+Use a different port for both `PORT` and `API_ORIGIN`. The two values must point to the same API server. See the port configuration instructions above.
 
-### Provider rejects a key or model
+### A key or model is rejected
 
-Check the key in the provider's dashboard, verify API access and account status, and confirm the model is available to that account. Provider access, billing, quotas, and availability are independent of this app.
+Confirm that the key belongs to the provider shown on the card, that API access is enabled, and that the account can use the selected model. Chat-product access and developer API access may be separate.
 
-### A request times out, is rate-limited, or fails
+### A provider request fails, times out, or is rate-limited
 
-Wait, check provider availability and quota, and lower parallel operations if many requests are in flight. A retry may create another billable request. Successful results from other stages remain available.
+Check the provider's service status, account quota, and billing status. Wait before retrying, and consider reducing the number of parallel operations. A retry may create another provider charge. Other successful answers may remain available even if one operation fails.
 
-### Local history is missing
+### The API returns a request-limit error
 
-History belongs to the browser profile where the debate ran. Use the same profile and make sure browser storage is enabled. Private browsing, cleared site data, or storage restrictions may remove or prevent local history.
+The server allows up to 80 provider-operation requests per client IP in a 15-minute window. Wait for the limit window to pass. Provider tests and retries count as operations.
 
-## Known limitations
+### History is missing
 
-- Model discovery is not dynamic; the code registry must be updated when providers change model IDs.
-- Monetary estimates, optional web research, and citation gathering are not implemented.
-- Independent answers stream; reviews and synthesis return when each operation completes.
-- Provider request cancellation is not implemented.
-- Advanced settings expose workflow concurrency and synthesizer preference, not every provider-specific generation parameter.
-- History is local to one browser profile and device; there are no user accounts or cross-device sync.
-- Retained PostgreSQL files are not connected to the active conversation workflow.
-- Model agreement and model-generated reviews can still be wrong; neither replaces independent verification.
+History belongs to the browser profile and device that saved it. Check that you are using the same browser profile and that site data has not been cleared. Private browsing and browser storage restrictions can make history unavailable.
+
+### `npm` or `node` is not recognized
+
+Install Node.js 22 or newer, then close and reopen your terminal. Run `node --version` and `npm --version` to check that both commands are available. In Windows PowerShell, use `npm.cmd` if PowerShell cannot run `npm`.
+
+## Current limitations
+
+- The available model list is maintained in code and is not fetched dynamically from providers.
+- The app does not estimate monetary cost.
+- It does not add web search, source citations, or external fact-checking.
+- Independent answers stream as they are generated; reviews and synthesis appear when their operations finish.
+- History is local to one browser profile and device. There are no user accounts or cross-device synchronization.
+- PostgreSQL migration and helper files remain in the repository but are not connected to the active workflow.
+- Model answers, reviews, and synthesis can all be wrong or biased. Use independent verification for important decisions.

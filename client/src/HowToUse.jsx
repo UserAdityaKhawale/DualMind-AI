@@ -1,81 +1,66 @@
 import React, { useEffect } from 'react';
-import SiteHeader, { Brand } from './SiteHeader.jsx';
+import SiteHeader from './SiteHeader.jsx';
+import ShineBorder from './ShineBorder.jsx';
 
-const guideSteps = [
-  { number: '01', title: 'Add your provider keys', body: 'Paste an API key into the matching provider card in the workspace. Keys stay in the current tab’s memory and are sent to the app server with the operations you start. Use a key from a provider account with API access enabled.' },
-  { number: '02', title: 'Choose your models', body: 'Select the models you want to compare. The current integrations include GPT-5.5, Gemini 3.8 Flash, and Claude Sonnet 4.6. Different models can take different approaches; selecting multiple models creates more provider calls.' },
-  { number: '03', title: 'Ask a clear question', body: 'State the task, give useful context, and mention the format you want. Clear constraints help each model answer the same question on its own.' },
-  { number: '04', title: 'Compare independent answers', body: 'Each selected model receives the original prompt without seeing the other answers first. Read the separate response cards and check their reported status, time, and usage where available.' },
-  { number: '05', title: 'Review the peer critiques', body: 'Each available reviewer evaluates other successful answers for support, completeness, assumptions, logical consistency, and missing details. A review is another model’s critique, not independent proof.' },
-  { number: '06', title: 'Read the final synthesis', body: 'A selected eligible model combines available answers and reviews. If one synthesizer fails, the app tries another eligible model. The final answer can still be incomplete when earlier calls fail.' },
-  { number: '07', title: 'Save, revisit, and export', body: 'Completed debates are saved in this browser’s IndexedDB history. Reopen a result, delete one entry, clear all entries, or export the debate as Markdown. Failed answers, reviews, and synthesis can be retried separately.' },
+const steps = [
+  ['01', 'Keep keys in this tab', 'Paste provider keys in the workspace. They live in React memory only, are never written to local or session storage, and disappear when the tab reloads or closes. A key is sent to the app server only with an operation you request; use HTTPS for remote deployments.'],
+  ['02', 'Generate independently', 'Each selected model receives your original prompt without seeing another model’s answer. Requests run in parallel, and each response is shown separately with its provider-reported usage where available.'],
+  ['03', 'Cross-review the answers', 'Every successful answer can be reviewed by each other selected model. For N successful models, this creates N × (N − 1) directed reviews; no model reviews its own answer.'],
+  ['04', 'Synthesize with evidence visible', 'An eligible model combines the available answers and critiques. If a call fails, successful output remains visible and synthesis can fall back to another configured model. Agreement is not proof of correctness.'],
+  ['05', 'Revisit local history', 'Debates are stored in this browser’s IndexedDB, not on the app server. You can search, reopen, export, or purge those records. History does not contain provider keys.'],
 ];
 
-const faq = [
-  ['Why was my API key rejected?', 'Check that the key belongs to the provider shown on its card, is active, and has API access. Provider keys and model permissions are managed by the provider, not by DualMind AI.'],
-  ['Why can’t I find my preferred model?', 'This app uses an explicit model registry. The current list is limited to the models shown on the home page; models are not discovered automatically.'],
-  ['Why did a model fail or return a rate-limit message?', 'Provider availability, quotas, credits, and rate limits vary by account. Reduce parallel operations, wait and retry, or check usage and billing in the provider’s own dashboard.'],
-  ['Will using the app cost money?', 'The app does not charge for model inference. Providers may bill your account for each generation, review, and synthesis call. The workspace estimates the number of calls and displays provider-reported token usage when available; it does not currently estimate prices.'],
-  ['I see a higher provider charge than expected. What should I check?', 'The workspace shows an operation count and provider-reported token totals when available, but it does not estimate prices or control provider billing. Check the provider’s usage dashboard and billing details for the account used.'],
-  ['Why is a debate incomplete?', 'A provider may reject a request, run out of quota, time out, or return unusable output. Successful answers and reviews remain visible; retry the failed operation or continue with the available evidence.'],
-  ['Does agreement mean the answer is correct?', 'No. Models can share the same mistaken assumptions. Verify important claims with reliable sources, especially for current or high-impact decisions.'],
-];
-
-export default function HowToUse() {
+export default function HowToUse({ theme, onToggleTheme }) {
   useEffect(() => {
-    document.title = 'How to Use DualMind AI';
+    document.title = 'Security & Guide — DualMind AI';
     const description = document.querySelector('meta[name="description"]');
-    if (description) description.setAttribute('content', 'A beginner-friendly guide to setting up provider keys, comparing AI models, reviewing answers, and reading a DualMind AI synthesis.');
+    if (description) description.setAttribute('content', 'Learn how DualMind AI handles provider keys, browser-local history, and quadratic cross-model peer review.');
   }, []);
 
-  return <div className="min-h-screen bg-[#070a12] text-slate-100">
-    <SiteHeader guide />
-    <a href="#guide-steps" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-20 focus:z-50 focus:rounded-lg focus:bg-cyan-300 focus:px-4 focus:py-2 focus:text-slate-950">Skip to guide</a>
-    <main className="mx-auto max-w-6xl px-5 pb-20 sm:px-8">
-      <section className="guide-hero py-16 sm:py-24">
-        <a href="/" className="eyebrow-link">← Back to DualMind AI</a>
-        <div className="mt-8 max-w-4xl animate-rise-in">
-          <p className="eyebrow"><span className="eyebrow-dot"/> A practical guide</p>
-          <h1 className="mt-5 text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">Get more from<br/><span className="text-gradient">every AI answer.</span></h1>
-          <p className="mt-6 max-w-3xl text-base leading-8 text-slate-400 sm:text-lg">DualMind AI helps you compare independent model responses, inspect their disagreements, and synthesize the available insights into one useful answer—without creating an account.</p>
-        </div>
-      </section>
+  return <div className="app-shell" data-theme={theme}>
+    <SiteHeader theme={theme} onToggleTheme={onToggleTheme} />
+    <main className="page-container">
+      <section className="guide-content" style={{ paddingTop: '3.2rem' }}>
+        <p className="page-eyebrow">Security & guide</p>
+        <h1 className="section-title" style={{ fontSize: 'clamp(2rem, 5vw, 3.4rem)', marginTop: '.7rem' }}>Designed for visibility.<br />Built around your keys.</h1>
+        <p className="page-lede">A practical look at the BYOK flow, how independent answers are challenged, and what remains on this device.</p>
 
-      <section id="guide-steps" className="scroll-mt-28" aria-labelledby="guide-steps-title">
-        <div className="section-heading"><p className="section-kicker">The workflow</p><h2 id="guide-steps-title">From question to considered answer</h2><p>Each stage is visible, so you can see what ran and what still needs attention.</p></div>
-        <ol className="mt-9 grid gap-3 md:grid-cols-2">
-          {guideSteps.map((step) => <li key={step.number} className="guide-step-card"><span className="guide-step-number">{step.number}</span><div><h3>{step.title}</h3><p>{step.body}</p></div></li>)}
-        </ol>
-        <div className="example-prompt mt-5"><span className="text-xs font-semibold uppercase tracking-[.16em] text-cyan-300">Example prompt</span><p className="mt-3 text-sm leading-7 text-slate-200 sm:text-base">“Compare three approaches to reducing API latency in a Node.js service. For each approach, explain the trade-offs, implementation effort, and the metrics I should measure. Assume a small team and an existing PostgreSQL database.”</p></div>
-      </section>
-
-      <section className="mt-20" aria-labelledby="walkthrough-title">
-        <div className="section-heading"><p className="section-kicker">A debate, at a glance</p><h2 id="walkthrough-title">One prompt. Separate perspectives.</h2><p>This diagram is an illustration of the workflow, not a live run or a model result.</p></div>
-        <div className="walkthrough-panel mt-8">
-          <div className="walkthrough-prompt"><span className="step-chip">YOUR QUESTION</span><p>Which option best fits my constraints, and what evidence would change that recommendation?</p></div>
-          <div className="walkthrough-connectors" aria-hidden="true"><span/><span/><span/></div>
-          <div className="walkthrough-columns">
-            <article><span className="model-mark openai-mark">O</span><div><span className="step-chip">INDEPENDENT ANSWER</span><h3>OpenAI</h3><p>Responds to the original prompt on its own.</p></div></article>
-            <article><span className="model-mark gemini-mark">G</span><div><span className="step-chip">INDEPENDENT ANSWER</span><h3>Google Gemini</h3><p>Builds a separate view from the same question.</p></div></article>
-            <article><span className="model-mark claude-mark">C</span><div><span className="step-chip">INDEPENDENT ANSWER</span><h3>Anthropic Claude</h3><p>Offers another perspective when configured.</p></div></article>
+        <ShineBorder as="section" className="surface-card guide-callout" aria-labelledby="privacy-heading">
+          <p className="page-eyebrow">Privacy model</p>
+          <h2 className="section-title" id="privacy-heading" style={{ marginTop: '.45rem' }}>Tab memory for keys. IndexedDB for history.</h2>
+          <p className="guide-copy">Provider keys are held in volatile page memory and are not persisted. To fulfill a generation, review, or synthesis request, the chosen key is sent to the DualMind API server and used for that provider call. Completed debate data is saved locally in your browser’s IndexedDB. No account sync is involved.</p>
+          <div className="guide-diagram">
+            <div className="subtle-card"><strong>1 · Your browser</strong>Key entered in tab memory; answers and history remain local.</div>
+            <div className="subtle-card"><strong>2 · Requested operation</strong>Only the selected key and request are sent over HTTPS to the app server.</div>
+            <div className="subtle-card"><strong>3 · Provider API</strong>The provider processes the call under your provider account and its own terms.</div>
           </div>
-          <div className="walkthrough-review"><span className="review-icon" aria-hidden="true">↗</span><div><span className="step-chip">CROSS-REVIEW</span><p>Reviewers critique other successful responses for gaps, assumptions, and possible errors.</p></div></div>
-          <div className="walkthrough-synthesis"><div className="synthesis-orbit" aria-hidden="true"><span/><span/><span/></div><div><span className="step-chip">FINAL SYNTHESIS · ILLUSTRATIVE</span><h3>A considered response from the available evidence</h3><p>Agreements, differences, and uncertainty remain visible for you to evaluate.</p></div></div>
-        </div>
-      </section>
+          <p className="compat-note" style={{ marginTop: '.85rem' }}>Browser memory is not a hardware vault. Use a trusted device, protect your provider account, and avoid public or shared deployments.</p>
+        </ShineBorder>
 
-      <section className="mt-20 grid gap-4 lg:grid-cols-2" aria-label="API key privacy and provider costs">
-        <article className="info-panel" id="privacy"><p className="section-kicker">Keys and history</p><h2>Your keys stay in the session</h2><ul className="info-list"><li>Keys are held in the page’s memory and cleared when the tab reloads.</li><li>A key is sent to the DualMind server with each operation that uses that provider. The server uses it for that call and does not save it in debate history.</li><li>Debates are stored in this browser only. They are not synced to an account or saved by this app’s backend.</li><li>Clearing local history removes those records from this browser. It does not remove provider-side records, browser backups, or copied exports.</li></ul><p className="small-note">Browser memory is not a hardware vault. Use your own trusted device and HTTPS for any remote deployment.</p></article>
-        <article className="info-panel info-panel-cost"><p className="section-kicker">Provider usage</p><h2>You control the provider account</h2><p>Bring your own API keys. Model providers may charge directly for generations, peer reviews, and synthesis according to your account’s terms and usage.</p><div className="usage-summary"><span><strong>Calls</strong><small>The workspace shows an operation count before you run.</small></span><span><strong>Tokens</strong><small>Provider-reported usage appears when available.</small></span><span><strong>Prices</strong><small>Exact cost estimates are not currently available.</small></span></div></article>
-      </section>
+        <section style={{ marginTop: '2.5rem' }} aria-labelledby="workflow-heading">
+          <p className="page-eyebrow">How the workflow works</p>
+          <h2 className="section-title" id="workflow-heading" style={{ marginTop: '.45rem' }}>A transparent, quadratic review pipeline</h2>
+          <p className="section-copy">The number of peer reviews grows quadratically because every model critiques every other successful response.</p>
+          <ol style={{ listStyle: 'none', padding: 0, margin: '1rem 0 0' }}>
+            {steps.map(([number, title, body]) => <li className="guide-step" key={number}><span>{number}</span><div><h3>{title}</h3><p>{body}</p></div></li>)}
+          </ol>
+          <ShineBorder className="surface-card guide-callout" style={{ marginTop: '1rem' }}>
+            <strong style={{ color: 'var(--text)' }}>Review count examples</strong>
+            <div className="guide-diagram" style={{ marginTop: '.7rem' }}>
+              <div className="subtle-card"><strong>2 models</strong>2 directed reviews</div>
+              <div className="subtle-card"><strong>3 models</strong>6 directed reviews</div>
+              <div className="subtle-card"><strong>4 models</strong>12 directed reviews</div>
+            </div>
+            <p className="compat-note" style={{ marginTop: '.75rem' }}>A complete run may use N answer calls + N × (N − 1) review calls + one synthesis call. Retries and connection tests add requests and may incur provider charges.</p>
+          </ShineBorder>
+        </section>
 
-      <section className="mt-20" aria-labelledby="faq-title">
-        <div className="section-heading"><p className="section-kicker">Troubleshooting</p><h2 id="faq-title">Questions you may run into</h2></div>
-        <div className="faq-list mt-7">{faq.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true">+</span></summary><p>{answer}</p></details>)}</div>
+        <ShineBorder as="section" className="surface-card guide-callout" style={{ marginTop: '2rem' }} aria-label="Important reliability note">
+          <p className="page-eyebrow">A note on reliability</p>
+          <p className="guide-copy">Cross-review can surface disagreement, missing assumptions, and possible errors. The reviews are still generated by language models and are not independent verification. Model consensus is not proof; verify important claims with trusted sources.</p>
+        </ShineBorder>
+        <p style={{ marginTop: '1.5rem' }}><a className="button-primary" href="/debate">Open the workspace <span aria-hidden="true">↗</span></a></p>
       </section>
-
-      <section className="guide-cta mt-20 text-center"><p className="section-kicker">Ready to compare?</p><h2>Bring your question.<br/><span className="text-gradient">Keep the evidence in view.</span></h2><p>Choose the models you have access to and see how their answers differ.</p><a href="/#workspace" className="button-primary mt-7">Start testing <span aria-hidden="true">↗</span></a></section>
     </main>
-    <footer className="site-footer"><div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-7 sm:flex-row sm:items-center sm:justify-between lg:px-8"><a href="/" aria-label="DualMind AI home"><Brand className="footer-brand-logo" /></a><p>No account · Bring your own keys · Provider usage may incur charges</p><a href="/#workspace" className="footer-link">Open the workspace ↗</a></div></footer>
   </div>;
 }
