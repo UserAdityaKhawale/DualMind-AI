@@ -1,8 +1,8 @@
 
-<img width="2752" height="1536" alt="Gemini_Generated_Image_lp01h2lp01h2lp01" src="https://github.com/user-attachments/assets/4e69494c-19a4-48d0-a9ed-5966eefe0f6b" />
+<img width="2752" height="1536" alt="Photo" src="https://github.com/user-attachments/assets/4e69494c-19a4-48d0-a9ed-5966eefe0f6b" />
 
 
-<img width="3766" height="1718" alt="Screenshot 2026-10-26 014407" src="https://github.com/user-attachments/assets/04b87868-4bb9-4cb3-8b2c-d91287ee4cf9" />
+<img width="3766" height="1718" alt="Photo2" src="https://github.com/user-attachments/assets/04b87868-4bb9-4cb3-8b2c-d91287ee4cf9" />
 
 
 
